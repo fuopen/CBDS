@@ -1,0 +1,139 @@
+===========================================================
+		Before run the pipeline
+===========================================================
+
+1. You need to convert your genome data into the following name and format:
+	e.g	CEU_chr1.snps.genotypes.sd
+		CEU_chr2.snps.genotypes.sd
+		CEU_chr3.snps.genotypes.sd
+		...
+		CEU_chr22.snps.genotypes.sd
+
+	#CHROM	POS	ID	REF	ALT	AA	NA06984_1	NA06984_2	NA06985_1	NA06985_2	NA06986_1	NA06986_2
+	22	16050607	rs587720402	G	A	.	G	G	G	G	G	G
+	22	16050840	rs587616822	C	G	.	C	C	C	C	C	C
+	22	16052684	rs139918843	A	C	.	A	A	A	A	A	A
+	...
+	-----------------------------------------------------------------------------------------------
+		*the genome data must be whole genome sequencing data;
+		*based on genome build37;
+		*the data must be phased;
+		*only biallelic SNPs accepted;
+		*the files are tab-delimited;
+		*the 1st column mush be chr, the 2nd must be position; 
+		*the 3rd, 4th, 5th, 6th can be any value;
+		*the individual genome start from the 7th column;
+		*split one diploid genome into two haploid genomes, e.g. NA06984_1 and NA06984_2. 
+			must specify '_1' and '_2' for each individual;
+	
+
+2. You need to download the scripts and tools, and make sure they are in the same folder:
+	psmc_pipeline.sh
+	mk_mask_ref_fasta.pl
+	run_psmc.pl
+	submit_psmc.sh
+	psmc2seg.pl
+	consensus_tmrca_tree.pl
+	psmc
+	neighbor
+	samtools
+	supergenome.pl
+	submit_supergenome.sh
+	psmc-noT
+	get_pop_size.pl
+
+
+===========================================================
+		Run the pipeline
+===========================================================
+	./psmc_pipeline.sh $path $pop $sample	
+		*It will run the whole pipeline of sampling, data processing, psmc and tree reconstruction
+		*It will call mk_mask_ref_fasta.pl, run_psmc.pl, submit_psmc.sh, psmc2seg.pl and consensus_tmrca_tree.pl
+		*3 parameters must be input in order: 
+			the path of your genome data;
+			the poplation name;
+			and how much sample (haploid genomes) be analyzed.
+		*the psmc process needs to submit multiple jobs to the cluster, 
+			make sure you run this on linux cluster and modify 'run_psmc.pl' to adapt to your servers.
+	
+
+After that, you may need to run psmc on supergenome to get a global
+estimate of the population size which is used to do inference in the models:
+	perl supergenome.pl $path $pop $sample
+		*It will call submit_supergenome.sh;
+		*It might takes few days or more if the sample size is too large;
+		*We suggest using 30 (or the whole sample if less than 30).
+	then,
+	perl get_pop_size.pl $pop $sample
+
+
+	
+
+===========================================================
+		Details of the pipeline
+===========================================================
+You may need to read our manualscript for full understand the whold workflow.
+
+Even this pipeline can be run easily, you may still need to monitor the
+processes. Check the scripts if any error or problem.
+
+This pipeline integrated a lots of tools which you need to install them or
+make a copy of them in this folder. 
+Some of the tools are compiled specially for this analysis:
+	psmc		## output the pair-wise TMRCA
+	psmc-noT	## no output of the TMRCA
+	neighbor	## build UPGMA trees without human-machine interaction.
+
+The pipeline start from make related sub-folders for different files and results.
+
+It will download the human reference genome build 37 from:
+	ftp://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/reference/human_g1k_v37.fasta.gz
+	ftp://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/reference/human_g1k_v37.fasta.fai
+
+It needs a file named 'masked_regions_by_density.txt' in folder '../required_files/'.
+We know that a lot of regions in the human genome is inaccessible or cannot be
+well sequenced by NGS short-read. Thess regions have high false positive rate
+in variants calling. Our method could be biased in those regions. 
+To avoid false positive signals, we made this masked regions according to the density 
+of masking annotated by 1000 Genomes project, then mask both the reference genome
+and the study genomes.
+
+You must input a sample size. The sample size should not be too small, which
+is lack of power to do inference, also it should not be too large, considering
+the exponential increased number of pairs:
+	#haploid	#pairs
+	20			190
+	30			435
+	40			780
+	...			...
+	100			4,950
+We suggest using ~30, which is powerful enough to detect
+selection, and computationaly acceptable. 
+
+In the psmc process, it needs to submit job to the cluster, one pair, one job.
+Here we made the shell script for submission on IBM's LSF platform:
+	bsub -M 20000 -W 24:00 sh submit_psmc.sh 
+You may need to modify it (run_psmc.pl, line 133) according to your system.
+
+The raw coalescent tree based ont the TMRCA were constructed by UPGMA
+algorithm, using neighbor software in phylip-3.69. We modified the codes to
+eliminate the human-machine interaction. 
+
+A population size file is needed to control the confounding effect in the
+models. PSMC for each pair of haploid genomes can infer a population size. But
+we though that the inference based on more genomes is more robust than single
+genome, especially for the recent history. For CEU, CHB and YRI, we have
+already infered the population size trajectories using the whole sample from
+1000 Genome phase 1:
+	CEU	85
+	CHB	97
+	YRI	88
+So you don't need to infer it again. The population size files are under
+'../required_files/'.
+For other populations, you need to estimate the population size based on
+supergenome. Run:
+	perl supergenome.pl $pop $sample
+when it done, run:
+	perl get_pop_size.pl $pop $sample
+You will get the pop size trajectory.
+
